@@ -1,118 +1,152 @@
--- Улучшенный и стабильный Highlight ESP (LocalScript)
+-- Улучшенный и стабильный Highlight ESP + HP Bar (LocalScript)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
--- Ждём, пока игра и LocalPlayer загрузятся
-if not game:IsLoaded() then
-    game.Loaded:Wait()
-end
+-- Ждём загрузку
+if not game:IsLoaded() then game.Loaded:Wait() end
 local LocalPlayer = Players.LocalPlayer
-while not LocalPlayer do
-    task.wait()
-    LocalPlayer = Players.LocalPlayer
-end
+while not LocalPlayer do task.wait() LocalPlayer = Players.LocalPlayer end
 
--- Утилитарная функция безопасного ожидания
+-- Безопасный WaitForChild
 local function safeWaitForChild(parent, name, timeout)
     if not parent then return nil end
     local ok, result = pcall(function()
         return parent:WaitForChild(name, timeout)
     end)
-    if ok then
-        return result
-    end
-    return nil
+    return ok and result or nil
 end
 
-local trackers = {} -- player -> { charConn = Disconnectable, cleanup = function() }
+local trackers = {}
 
+---------------------------------------------------------------------
+-- УДАЛЕНИЕ СТАРЫХ ХАЙЛАЙТОВ
+---------------------------------------------------------------------
 local function removeHighlightFromCharacter(character)
     if not character then return end
     for _, v in ipairs(character:GetChildren()) do
-        if v:IsA("Highlight") then
-            v:Destroy()
-        end
+        if v:IsA("Highlight") then v:Destroy() end
     end
 end
 
+---------------------------------------------------------------------
+-- ✨ СОЗДАНИЕ СВЕЧЕНИЯ
+---------------------------------------------------------------------
 local function createHighlight(character)
     if not character or not character.Parent then return end
-    -- Ждём HRP, но безопасно
     local hrp = character:FindFirstChild("HumanoidRootPart") or safeWaitForChild(character, "HumanoidRootPart", 5)
     if not hrp then return end
 
-    -- Удалим старые, если есть
     removeHighlightFromCharacter(character)
 
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "ESP_Highlight"
-    highlight.Parent = character
-    highlight.FillColor = Color3.fromRGB(255, 0, 0)
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    highlight.FillTransparency = 0.5
-    highlight.OutlineTransparency = 0
+    local h = Instance.new("Highlight")
+    h.Name = "ESP_Highlight"
+    h.Parent = character
+    h.FillColor = Color3.fromRGB(255, 0, 0)
+    h.OutlineColor = Color3.fromRGB(255, 255, 255)
+    h.FillTransparency = 0.5
+    h.OutlineTransparency = 0
 end
 
-local function onCharacterAdded(player, character)
-    -- небольшая задержка, чтобы модель успела инициализироваться
-    task.wait(0.05)
-    -- защита pcall на случай, если что-то внутри character сломано
-    local ok = pcall(function()
-        createHighlight(character)
+---------------------------------------------------------------------
+-- ❤️ СОЗДАНИЕ HP-БАРА
+---------------------------------------------------------------------
+local function createHPBar(character)
+    local head = character:FindFirstChild("Head")
+    local humanoid = character:FindFirstChild("Humanoid")
+
+    if not head or not humanoid then return end
+
+    local old = head:FindFirstChild("HP_UI")
+    if old then old:Destroy() end
+
+    -- Billboard GUI
+    local bill = Instance.new("BillboardGui")
+    bill.Name = "HP_UI"
+    bill.Parent = head
+    bill.Adornee = head
+    bill.AlwaysOnTop = true
+    bill.Size = UDim2.new(4, 0, 1.2, 0)
+    bill.StudsOffset = Vector3.new(-3, 0.5, 0)
+
+    -- Фон полоски
+    local bg = Instance.new("Frame")
+    bg.Parent = bill
+    bg.Size = UDim2.new(1, 0, 0.2, 0)
+    bg.Position = UDim2.new(0, 0, 0.4, 0)
+    bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+
+    -- Заполнение HP
+    local fill = Instance.new("Frame")
+    fill.Parent = bg
+    fill.Size = UDim2.new(1, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+
+    humanoid.HealthChanged:Connect(function()
+        local ratio = humanoid.Health / humanoid.MaxHealth
+        fill.Size = UDim2.new(math.clamp(ratio, 0, 1), 0, 1, 0)
+        if ratio < 0.3 then
+            fill.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        elseif ratio < 0.6 then
+            fill.BackgroundColor3 = Color3.fromRGB(255, 255, 0)
+        else
+            fill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+        end
     end)
-    if not ok then
-        -- ничего критичного — просто пропускаем
-    end
 end
 
+---------------------------------------------------------------------
+-- СОБЫТИЕ ДЛЯ НОВОГО ПЕРСОНАЖА
+---------------------------------------------------------------------
+local function onCharacterAdded(player, character)
+    task.wait(0.05)
+    pcall(function()
+        createHighlight(character)
+        createHPBar(character)
+    end)
+end
+
+---------------------------------------------------------------------
+-- ОТСЛЕЖИВАНИЕ ИГРОКА
+---------------------------------------------------------------------
 local function trackPlayer(player)
     if not player or player == LocalPlayer then return end
 
-    -- очистка предыдущих подписок (если были)
     if trackers[player] and trackers[player].charConn then
         trackers[player].charConn:Disconnect()
         trackers[player] = nil
     end
 
-    -- если персонаж уже есть — применим сразу
     if player.Character then
-        -- pcall на всякий случай
-        pcall(function() createHighlight(player.Character) end)
+        pcall(function()
+            createHighlight(player.Character)
+            createHPBar(player.Character)
+        end)
     end
 
-    -- подписываемся на CharacterAdded
-    local charConn = player.CharacterAdded:Connect(function(character)
-        onCharacterAdded(player, character)
+    local charConn = player.CharacterAdded:Connect(function(char)
+        onCharacterAdded(player, char)
     end)
 
-    -- подписываемся на удаление игрока, чтобы очистить ресурсы
-    local function cleanup()
-        if trackers[player] then
-            if trackers[player].charConn then
-                trackers[player].charConn:Disconnect()
-            end
-            trackers[player] = nil
-        end
-    end
-
-    trackers[player] = { charConn = charConn, cleanup = cleanup }
+    trackers[player] = { charConn = charConn }
 end
 
--- Очистка при уходе игрока
+---------------------------------------------------------------------
+-- УДАЛЕНИЕ ДАННЫХ ЕСЛИ ИГРОК ВЫШЕЛ
+---------------------------------------------------------------------
 Players.PlayerRemoving:Connect(function(player)
-    if trackers[player] and trackers[player].cleanup then
-        trackers[player].cleanup()
+    if trackers[player] then
+        if trackers[player].charConn then trackers[player].charConn:Disconnect() end
+        trackers[player] = nil
     end
 end)
 
--- Инициализация для уже подключенных игроков
+---------------------------------------------------------------------
+-- ИНИЦИАЛИЗАЦИЯ
+---------------------------------------------------------------------
 for _, p in ipairs(Players:GetPlayers()) do
     trackPlayer(p)
 end
 
--- Подключаем новых игроков
-Players.PlayerAdded:Connect(function(p)
-    trackPlayer(p)
-end)
+Players.PlayerAdded:Connect(trackPlayer)
 
-print("[✔] ESP: исправленный и стабильный скрипт запущен")
+print("[✔] ESP: свечение + HP бар запущены")
