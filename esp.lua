@@ -56,6 +56,7 @@ local function createHPBar(character)
 
     if not head or not humanoid then return end
 
+    -- Удаляем старый HP-бар, если есть
     local old = head:FindFirstChild("HP_UI")
     if old then old:Destroy() end
 
@@ -68,20 +69,18 @@ local function createHPBar(character)
     bill.Size = UDim2.new(4, 0, 1.2, 0)
     bill.StudsOffset = Vector3.new(-3, 0.5, 0)
 
-    -- Фон полоски
     local bg = Instance.new("Frame")
     bg.Parent = bill
     bg.Size = UDim2.new(1, 0, 0.2, 0)
     bg.Position = UDim2.new(0, 0, 0.4, 0)
     bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 
-    -- Заполнение HP
     local fill = Instance.new("Frame")
     fill.Parent = bg
     fill.Size = UDim2.new(1, 0, 1, 0)
     fill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
 
-    humanoid.HealthChanged:Connect(function()
+    local function updateHP()
         local ratio = humanoid.Health / humanoid.MaxHealth
         fill.Size = UDim2.new(math.clamp(ratio, 0, 1), 0, 1, 0)
         if ratio < 0.3 then
@@ -91,7 +90,10 @@ local function createHPBar(character)
         else
             fill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
         end
-    end)
+    end
+
+    humanoid.HealthChanged:Connect(updateHP)
+    updateHP()
 end
 
 ---------------------------------------------------------------------
@@ -149,4 +151,22 @@ end
 
 Players.PlayerAdded:Connect(trackPlayer)
 
-print("[✔] ESP: свечение + HP бар запущены")
+---------------------------------------------------------------------
+-- ОБНОВЛЕНИЕ ВСЕГО РАЗ В КАДР ДЛЯ ВСЕХ
+---------------------------------------------------------------------
+RunService.RenderStepped:Connect(function()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local head = player.Character:FindFirstChild("Head")
+            local humanoid = player.Character:FindFirstChild("Humanoid")
+            if head and humanoid then
+                -- Проверка на наличие HP_UI и создание заново если пропал
+                if not head:FindFirstChild("HP_UI") then
+                    createHPBar(player.Character)
+                end
+            end
+        end
+    end
+end)
+
+print("[✔] ESP: свечение + HP бар теперь всегда видим и работает каждый раунд")
